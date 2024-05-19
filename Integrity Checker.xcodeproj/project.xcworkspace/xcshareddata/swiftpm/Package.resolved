@@ -1,0 +1,24 @@
+{
+  "originHash" : "1f5f98f5b80d68cc1f7c0a32b58d3839fd5d79e2c6696b5aa685a90d6dc1d748",
+  "pins" : [
+    {
+      "identity" : "filekit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/nvzqz/FileKit.git",
+      "state" : {
+        "revision" : "9006d2888025fbe893c3c396327b2fe45a8c177b",
+        "version" : "6.1.0"
+      }
+    },
+    {
+      "identity" : "swift-xattr",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/jozefizso/swift-xattr",
+      "state" : {
+        "revision" : "f8605af7b3290dbb235fb182ec6e9035d0c8c3ac",
+        "version" : "3.0.0"
+      }
+    }
+  ],
+  "version" : 3
+}
