@@ -8,7 +8,7 @@
 import Foundation
 import SwiftUI
 
-enum IntegrityStatus {
+enum IntegrityStatus: Equatable {
     case new
     case unchecked
     case match

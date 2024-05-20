@@ -18,7 +18,21 @@ final class IntegrityItem: ObservableObject, Identifiable, Comparable {
     let icon: NSImage
     weak var parent: IntegrityItem?
     @Published var children: [IntegrityItem]?
-    @Published var status: IntegrityStatus
+    @Published var status: IntegrityStatus {
+        didSet {
+            if oldValue != status {
+                parent?.updateStatus()
+            }
+        }
+    }
+    
+    @Published var progress: (current: Int, total: Int) {
+        didSet {
+            if oldValue != progress {
+                parent?.updateProgress()
+            }
+        }
+    }
 
     /// Creates a new integrity item
     /// - Parameters:
@@ -37,6 +51,7 @@ final class IntegrityItem: ObservableObject, Identifiable, Comparable {
         self.path = path
         self.icon = path.icon
         self.status = .new
+        self.progress = (current: 0, total: 0)
         self.fileHash = nil
         self.parent = parent
         self.children = nil
@@ -112,33 +127,22 @@ final class IntegrityItem: ObservableObject, Identifiable, Comparable {
         }
     }
 
-    /// Current progress when hashing or checking
-    var progress: (Int, Int) {
-        if isFile {
-            return status == .hashing || status == .checking ? (0, 1) : (1, 1)
-        } else {
-            return children?
-                .map { $0.progress }
-                .reduce((0, 0)) { ($0.0 + $1.0, $0.1 + $1.1) } ?? (1, 1)
-        }
-    }
-
     /// Generates hashes for the current item and it's children
     /// - Parameter newOnly: If true, do not rehash files if existing hashes
     func hash(newOnly: Bool = false) {
-        status = .hashing
-        parent?.updateStatus()
-
         // If the item is a folder, hash all children
         if let children {
             for c in children {
-                c.hash()
+                c.hash(newOnly: newOnly)
             }
         } else {
             // If newOnly is set and the file already has a hash, skip it
-            if newOnly && fileHash != nil {
+            if newOnly && status != .new {
                 return
             }
+
+            status = .hashing
+            progress = (current: 0, total: 1)
 
             // If the item is a file, hash the file
             Task(priority: .high) {
@@ -149,30 +153,33 @@ final class IntegrityItem: ObservableObject, Identifiable, Comparable {
                         DispatchQueue.main.async {
                             self.fileHash = chash
                             self.status = .unchecked
-                            self.parent?.updateStatus()
+                            self.progress = (current: 1, total: 1)
                         }
                     } catch {
                         Logger.background.error("Failed to hash \(self.path.rawValue): \(error.localizedDescription)")
-                        self.status = .mismatch
-                        self.parent?.updateStatus()
+                        DispatchQueue.main.async {
+                            self.status = .mismatch
+                            self.progress = (current: 1, total: 1)
+                        }
                     }
                 }
             }
         }
-
-        parent?.updateStatus()
     }
 
     /// Verifies the integrity of the item by comparing the current hash with the stored hash
     func verify() {
-        status = .checking
 
         // If the item is a folder, verify all children
         if let children {
+            status = .checking
+            progress = (current: 0, total: 1)
             for c in children {
                 c.verify()
             }
         } else {
+            status = .checking
+            progress = (current: 0, total: 1)
             // If the item is a file, verify its integrity
             Task(priority: .high) {
                 try? await hashQueue.async {
@@ -190,12 +197,14 @@ final class IntegrityItem: ObservableObject, Identifiable, Comparable {
                                 self.status = .match
                                 self.fileHash = chash
                             }
-                            self.parent?.updateStatus()
+                            self.progress = (current: 1, total: 1)
                         }
                     } catch {
                         Logger.background.error("Failed to verify \(self.path.rawValue): \(error.localizedDescription)")
-                        self.status = .mismatch
-                        self.parent?.updateStatus()
+                        DispatchQueue.main.async {
+                            self.status = .mismatch
+                            self.progress = (current: 1, total: 1)
+                        }
                     }
                 }
             }
@@ -210,20 +219,66 @@ final class IntegrityItem: ObservableObject, Identifiable, Comparable {
         }
 
         // Determine the status of the folder
-        let res = children.map(\.status)
-        if res.allSatisfy({ $0 == .match }) {
-            status = .match
-        } else if res.contains(where: { $0 == .mismatch }) {
-            status = .mismatch
-        } else if res.contains(where: { $0 == .hashing }) {
-            status = .hashing
-        } else if res.contains(where: { $0 == .checking }) {
-            status = .checking
-        } else {
-            status = .unchecked
+        Task(priority: .background) {
+            var newStatus = IntegrityStatus.unchecked
+            var same = children.first?.status
+
+            loop: for c in children {
+                if let previous = same {
+                    if previous != c.status {
+                        same = nil
+                    }
+                }
+
+                switch c.status {
+                case .new, .unchecked, .match:
+                    break
+                case .mismatch:
+                    newStatus = .mismatch
+                    same = nil
+                    break loop
+                case .hashing:
+                    newStatus = .hashing
+                    same = nil
+                    break loop
+                case .checking:
+                    newStatus = .checking
+                    same = nil
+                    break loop
+                }
+            }
+
+            let status = same ?? newStatus
+
+            DispatchQueue.main.async {
+                self.status = status
+            }
+        }
+    }
+    
+    private func updateProgress() {
+        // Do nothing for files
+        guard let children else {
+            return
         }
 
-        parent?.updateStatus()
+        // Determine the status of the folder
+        Task(priority: .background) {
+            var current = 0
+            var total = 0
+
+             for c in children {
+                 let (c, t) = c.progress
+                 current += c
+                 total += t
+            }
+
+            let progress = (current: current, total: total)
+
+            DispatchQueue.main.async {
+                self.progress = progress
+            }
+        }
     }
 
     /// Checks if both items are equal

@@ -45,17 +45,7 @@ struct EntryItem: View {
         }
     }
 
-    @ViewBuilder var progress: some View {
-        let (current, total) = item.progress
-
-        if current != total {
-            ProgressView("", value: Double(current), total: Double(total)).font(.footnote).lineLimit(1)
-        } else {
-            Text(item.description).font(.footnote).lineLimit(1)
-        }
-    }
-
-    @ViewBuilder var status: some View {
+    @ViewBuilder var status: some View { 
         if item.status == .checking || item.status == .hashing {
             let (current, total) = item.progress
             ProgressView(value: Double(current), total: Double(total))
